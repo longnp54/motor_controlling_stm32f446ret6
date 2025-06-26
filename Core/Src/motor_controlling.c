@@ -1,12 +1,11 @@
 #include "motor_controlling.h"
-#include <math.h>
 #include <stdlib.h>
 
 #define MAX_PWM 44999
 #define MAX_OUTPUT 140.0f
 #define LOW_PASS_ALPHA 0.2f
 
-// ✅ ĐƠN GIẢN HÓA STRUCT - LOẠI BỎ THÔNG SỐ KHÔNG CẦN
+//Initialize the motor controller structure
 typedef struct {
     TIM_HandleTypeDef *encoder_timer;
     TIM_HandleTypeDef *pwm_timer;
@@ -66,49 +65,40 @@ void MotorController_SetTargetRPM(MotorController *mc, float rpm) {
     mc->target_rpm = rpm;
 }
 
-// ✅ PID ĐƠN GIẢN VÀ HIỆU QUẢ
+// PID controller update function
 void MotorController_Update(MotorController *mc, uint32_t dt_ms) {
-    // 1. Đọc encoder và tính RPM
-    int32_t curr = __HAL_TIM_GET_COUNTER(mc->encoder_timer);
-    int32_t diff = curr - mc->last_count;
+    // 1.Read encoder from CCR register
+    uint32_t curr = __HAL_TIM_GET_COUNTER(mc->encoder_timer);
     
-    // Xử lý overflow
-    if (diff > 32767) diff -= 65536;
-    if (diff < -32768) diff += 65536;
+    //Processing diff automatically
+    int32_t diff = (int32_t)((curr - mc->last_count + 22500) % 45000) - 22500;
+    
+    mc->last_count = curr;
     
     float new_rpm = ((float)diff * 60000.0f) / (515 * dt_ms);
     
     // Low-pass filter
     mc->current_rpm = mc->current_rpm * 0.8f + new_rpm * 0.2f;
-    mc->last_count = curr;
     
     if (!mc->is_enabled) return;
     
-    // 2. Tính PID - SIÊU ĐỠN GIẢN
+    // 2.Calculate PID
     float error = mc->target_rpm - mc->current_rpm;
     
-    // ✅ CHỈ CẬP NHẬT INTEGRAL KHI ERROR > 1 RPM
     if (fabs(error) > 1.0f) {
         mc->integral += error * dt_ms;
-        
-        // ✅ GIỚI HẠN INTEGRAL ĐƠN GIẢN
         if (mc->integral > 5000) mc->integral = 5000;
         if (mc->integral < -5000) mc->integral = -5000;
     }
     
-    // ✅ DERIVATIVE ĐƠN GIẢN
     float derivative = (error - mc->previous_error) / dt_ms;
-    
-    // ✅ PID OUTPUT KHÔNG PHỨC TẠP
     float output = mc->kp * error + mc->ki * mc->integral + mc->kd * derivative;
     
-    // ✅ GIỚI HẠN OUTPUT
     if (output > MAX_OUTPUT) output = MAX_OUTPUT;
     if (output < -MAX_OUTPUT) output = -MAX_OUTPUT;
     
     mc->previous_error = error;
     
-    // ✅ APPLY OUTPUT - CHỈ KHI ERROR > 0.5 RPM
     if (fabs(error) > 0.5f) {
         Motor_SetDutyCycle(mc, (int8_t)output);
     }
@@ -118,7 +108,7 @@ float MotorController_GetRPM(MotorController *mc) {
     return mc->current_rpm;
 }
 
-// ✅ ĐƠN GIẢN HÓA MOTOR CONTROL
+// Set the duty cycle for the motor
 void Motor_SetDutyCycle(MotorController *mc, int8_t duty_cycle) {
     // Clamp
     if (duty_cycle > 140) duty_cycle = 140;
