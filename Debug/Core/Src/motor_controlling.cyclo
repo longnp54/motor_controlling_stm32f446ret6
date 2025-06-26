@@ -1,0 +1,7 @@
+../Core/Src/motor_controlling.c:7:6:MotorController_Setup	7
+../Core/Src/motor_controlling.c:33:6:MotorController_Enable	1
+../Core/Src/motor_controlling.c:39:6:MotorController_Disable	7
+../Core/Src/motor_controlling.c:47:6:MotorController_SetTargetRPM	1
+../Core/Src/motor_controlling.c:52:6:MotorController_Update	15
+../Core/Src/motor_controlling.c:112:7:MotorController_GetRPM	1
+../Core/Src/motor_controlling.c:116:6:Motor_SetDutyCycle	21
