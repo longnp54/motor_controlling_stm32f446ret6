@@ -49,13 +49,9 @@ TIM_HandleTypeDef htim8;
 TIM_HandleTypeDef htim12;
 
 /* USER CODE BEGIN PV */
-// ✅ THAY THẾ các biến cũ bằng MotorController
 MotorController motor1;
 uint32_t last_update_time = 0;
 
-// ✅ THÊM các biến cho hàm cũ (nếu muốn giữ backward compatibility)
-static uint32_t last_time = 0;
-static int32_t last_count = 0;
 static float current_rpm = 0.0f;
 static uint32_t counter = 0;
 /* USER CODE END PV */
@@ -122,10 +118,11 @@ int main(void)
   MX_TIM5_Init();
   MX_TIM8_Init();
   /* USER CODE BEGIN 2 */
+  // ✅ More aggressive base gains for faster response
   MotorController_Setup(&motor1, &htim2, &htim12, 
                        TIM_CHANNEL_1,    // Timer12 CH1 - Forward
                        TIM_CHANNEL_2,    // Timer12 CH2 - Backward  
-                       3.0, 0.3, 0.01);  //
+					   4.0, 1.0, 0.1);  // Higher gains: Kp=4.0, Ki=1.0, Kd=0.1
 
   
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
@@ -134,7 +131,7 @@ int main(void)
   MotorController_Enable(&motor1);
   
   
-  MotorController_SetTargetRPM(&motor1, 100);  // Tăng từ 50 lên 100
+  MotorController_SetTargetRPM(&motor1, 130);  // Tăng từ 50 lên 100
 
   last_update_time = HAL_GetTick();
   /* USER CODE END 2 */
@@ -146,17 +143,15 @@ int main(void)
     uint32_t current_time = HAL_GetTick();
     uint32_t dt = current_time - last_update_time;
     
-    //
-    if (dt >= 50) {
-        MotorController_Update(&motor1, dt);  // Truyền dt vào hàm
-        
-        // ✅ CẬP NHẬT BIẾN RPM GLOBAL để theo dõi
+    // ✅ Very fast update rate for responsive control
+    if (dt >= 10) {  // 10ms = 100Hz update rate
+        MotorController_Update(&motor1, dt);
         current_rpm = MotorController_GetRPM(&motor1);
-        counter++; 
         last_update_time = current_time;
     }
-    // ✅ DELAY NHỎ để không làm quá tải CPU
-    HAL_Delay(10);  
+    
+    // ✅ Minimal delay
+    HAL_Delay(1);
     
     /* USER CODE END WHILE */
   }

@@ -1,25 +1,10 @@
 #include "motor_controlling.h"
 #include <stdlib.h>
+#include <math.h>  // Add this for fabs() function
 
 #define MAX_PWM 44999
-#define MAX_OUTPUT 140.0f
+#define MAX_OUTPUT 100.0f  // ✅ Changed from 127.0f to 100.0f (percentage)
 #define LOW_PASS_ALPHA 0.2f
-
-//Initialize the motor controller structure
-typedef struct {
-    TIM_HandleTypeDef *encoder_timer;
-    TIM_HandleTypeDef *pwm_timer;
-    uint32_t pwm_channel_forward;
-    uint32_t pwm_channel_backward;
-    
-    float kp, ki, kd;
-    float target_rpm;
-    float current_rpm;
-    float integral;
-    float previous_error;
-    int32_t last_count;
-    uint8_t is_enabled;
-} MotorController;
 
 void MotorController_Setup(MotorController *mc,
                           TIM_HandleTypeDef *enc_tim,
@@ -67,41 +52,39 @@ void MotorController_SetTargetRPM(MotorController *mc, float rpm) {
 
 // PID controller update function
 void MotorController_Update(MotorController *mc, uint32_t dt_ms) {
-    // 1.Read encoder from CCR register
+    // Read encoder
     uint32_t curr = __HAL_TIM_GET_COUNTER(mc->encoder_timer);
-    
-    //Processing diff automatically
     int32_t diff = (int32_t)((curr - mc->last_count + 22500) % 45000) - 22500;
-    
     mc->last_count = curr;
     
+    // Calculate RPM
     float new_rpm = ((float)diff * 60000.0f) / (515 * dt_ms);
     
-    // Low-pass filter
-    mc->current_rpm = mc->current_rpm * 0.8f + new_rpm * 0.2f;
+    // ✅ Faster filtering
+    mc->current_rpm = mc->current_rpm * 0.6f + new_rpm * 0.4f;
     
     if (!mc->is_enabled) return;
     
-    // 2.Calculate PID
+    // ✅ Simple but fast PID
     float error = mc->target_rpm - mc->current_rpm;
+    float dt_sec = dt_ms / 1000.0f;
     
-    if (fabs(error) > 1.0f) {
-        mc->integral += error * dt_ms;
-        if (mc->integral > 5000) mc->integral = 5000;
-        if (mc->integral < -5000) mc->integral = -5000;
-    }
+    // ✅ Always integrate for steady-state accuracy
+    mc->integral += error * dt_sec;
+    if (mc->integral > 800) mc->integral = 800;
+    if (mc->integral < -800) mc->integral = -800;
     
-    float derivative = (error - mc->previous_error) / dt_ms;
+    float derivative = (error - mc->previous_error) / dt_sec;
+    
+    // ✅ Simple PID calculation
     float output = mc->kp * error + mc->ki * mc->integral + mc->kd * derivative;
     
-    if (output > MAX_OUTPUT) output = MAX_OUTPUT;
-    if (output < -MAX_OUTPUT) output = -MAX_OUTPUT;
+    // ✅ Full range output
+    if (output > 100.0f) output = 100.0f;
+    if (output < -100.0f) output = -100.0f;
     
     mc->previous_error = error;
-    
-    if (fabs(error) > 0.5f) {
-        Motor_SetDutyCycle(mc, (int8_t)output);
-    }
+    Motor_SetDutyCycle(mc, (int8_t)output);
 }
 
 float MotorController_GetRPM(MotorController *mc) {
@@ -110,12 +93,15 @@ float MotorController_GetRPM(MotorController *mc) {
 
 // Set the duty cycle for the motor
 void Motor_SetDutyCycle(MotorController *mc, int8_t duty_cycle) {
-    // Clamp
-    if (duty_cycle > 140) duty_cycle = 140;
-    if (duty_cycle < -140) duty_cycle = -140;
+    // ✅ Use percentage-based (0-100%) 
+    if (duty_cycle > 100) duty_cycle = 100;
+    if (duty_cycle < -100) duty_cycle = -100;
     
-    // Tính PWM
-    uint32_t pwm_value = (abs(duty_cycle) * MAX_PWM) / 140;
+    // ✅ Remove minimum threshold - let small values pass through
+    // No minimum threshold - direct control
+    
+    // ✅ Calculate PWM value using percentage (0-100%)
+    uint32_t pwm_value = (abs(duty_cycle) * MAX_PWM) / 100;
     
     if (duty_cycle > 0) {
         // Forward
