@@ -2,6 +2,6 @@
 ../Core/Src/motor_controlling.c:35:6:MotorController_Enable	16	static
 ../Core/Src/motor_controlling.c:41:6:MotorController_Disable	16	static
 ../Core/Src/motor_controlling.c:49:6:MotorController_SetTargetRPM	16	static
-../Core/Src/motor_controlling.c:54:6:MotorController_Update	56	static
-../Core/Src/motor_controlling.c:90:7:MotorController_GetRPM	16	static
-../Core/Src/motor_controlling.c:95:6:Motor_SetDutyCycle	24	static
+../Core/Src/motor_controlling.c:54:6:MotorController_Update	96	static
+../Core/Src/motor_controlling.c:165:7:MotorController_GetRPM	16	static
+../Core/Src/motor_controlling.c:170:6:Motor_SetDutyCycle	24	static

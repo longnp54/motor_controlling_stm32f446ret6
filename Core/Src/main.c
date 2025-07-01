@@ -122,7 +122,7 @@ int main(void)
   MotorController_Setup(&motor1, &htim2, &htim12, 
                        TIM_CHANNEL_1,    // Timer12 CH1 - Forward
                        TIM_CHANNEL_2,    // Timer12 CH2 - Backward  
-					   4.0, 1.0, 0.1);  // Higher gains: Kp=4.0, Ki=1.0, Kd=0.1
+					   2.5, 0.4, 0.05);  // Kp=2.5, Ki=0.4 (increased from 0.05), Kd=0.05
 
   
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
@@ -143,14 +143,27 @@ int main(void)
     uint32_t current_time = HAL_GetTick();
     uint32_t dt = current_time - last_update_time;
     
-    // ✅ Very fast update rate for responsive control
-    if (dt >= 10) {  // 10ms = 100Hz update rate
+    if (dt >= 10) {
         MotorController_Update(&motor1, dt);
         current_rpm = MotorController_GetRPM(&motor1);
         last_update_time = current_time;
+        
+        // ✅ MORE AGGRESSIVE: Reset integral periodically
+        static uint32_t reset_counter = 0;
+        reset_counter++;
+        
+        if (reset_counter >= 500) {  // Every 5 seconds
+            motor1.integral *= 0.1f;  // Reduce integral by 90%
+            reset_counter = 0;
+        }
+        
+        // ✅ IMMEDIATE reset if motor is very close to target
+        float error = fabs(130.0f - current_rpm);
+        if (error < 0.5f) {
+            motor1.integral = 0;  // Immediate reset when very close
+        }
     }
     
-    // ✅ Minimal delay
     HAL_Delay(1);
     
     /* USER CODE END WHILE */
