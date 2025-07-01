@@ -3,7 +3,7 @@
 #include <math.h>  // Add this for fabs() function
 
 #define MAX_PWM 44999
-#define MAX_OUTPUT 100.0f  // ✅ Changed from 127.0f to 100.0f (percentage)
+#define MAX_OUTPUT 140.0f  // ✅ Changed from 127.0f to 100.0f (percentage)
 #define LOW_PASS_ALPHA 0.2f
 
 void MotorController_Setup(MotorController *mc,
@@ -69,90 +69,51 @@ void MotorController_Update(MotorController *mc, uint32_t dt_ms) {
     float error = mc->target_rpm - mc->current_rpm;
     float dt_sec = dt_ms / 1000.0f;
     
-    // ✅ IMPROVED: Variable integral gain approach
-    // - Uses smaller Ki when close to target
-    // - Completely disables integral in a deadband
+    // ✅ MODIFIED: Much more aggressive integral handling for steady-state error
     float abs_error = fabs(error);
     float variable_ki = mc->ki;
     
-    if (abs_error < 5.0f) {
-        // Reduce integral gain when close to target
-        variable_ki = mc->ki * (abs_error / 5.0f);
-        
-        // ✅ Deadband approach - no integration when very close
-        if (abs_error < 1.0f) {
-            variable_ki = 0.0f;  // Disable integral completely
-        }
+    // ✅ BOOST INTEGRAL GAIN for large persistent errors
+    // We need much stronger integral action to overcome steady-state error
+    if (abs_error > 10.0f) {
+        // For large errors, boost integral gain dramatically
+        variable_ki = mc->ki * 3.0f;  // 300% of normal Ki
+    } else if (abs_error >= 1.0f) {
+        // For moderate errors, use normal Ki with slight boost
+        variable_ki = mc->ki * 1.5f;  // 150% of normal Ki
+    } else {
+        // Very close to target, use normal Ki
+        variable_ki = mc->ki;
     }
     
-    // ✅ IMPROVED: Calculate derivative with more filtering
+    // Calculate derivative with filtering
     float derivative = (error - mc->previous_error) / dt_sec;
     
-    // ✅ EFFICIENT: Pre-calculate proportional and derivative terms
+    // Pre-calculate terms
     float p_term = mc->kp * error;
     float d_term = mc->kd * derivative;
     
-    // ✅ EFFICIENT: Calculate what output would be without integral
+    // Calculate what output would be without integral
     float output_without_integral = p_term + d_term;
     
-    // ✅ BETTER ANTI-WINDUP: Back-calculation method
-    float integral_change = 0.0f;
+    // ✅ AGGRESSIVE: Added feed-forward bias term to overcome steady-state error
+    // This is a critical addition for DC motors that have friction and load
+    static float bias_term = 0.0f;
     
-    // Only accumulate integral when appropriate
-    if (abs_error > 1.0f && fabs(output_without_integral) < 90.0f) {
-        // Normal integration
-        integral_change = error * dt_sec;
-    } else {
-        // ✅ IMPROVED: Targeted integral reduction
-        // Reduces integral exactly to the point where output won't saturate
-        if (fabs(mc->integral) > 0.1f) {
-            // Calculate how much integral action we need to reduce
-            float desired_integral = (90.0f - fabs(output_without_integral)) / variable_ki;
-            desired_integral = fmin(desired_integral, fabs(mc->integral));
-            
-            // Make integral decay to this value
-            float decay_rate = 0.3f * dt_sec;  // 30% decay per second
-            integral_change = -decay_rate * mc->integral;
-        }
+    // Gradually build up bias term if we're consistently under target
+    if (error > 5.0f && mc->current_rpm > 0) {
+        // We're consistently under target, increase bias
+        bias_term += 0.05f;  // Small increment per cycle
+        if (bias_term > 20.0f) bias_term = 20.0f;  // Limit bias
+    } else if (error < -5.0f) {
+        // We're overshooting, reduce bias
+        bias_term -= 0.1f;  // Faster reduction if overshooting
+        if (bias_term < 0.0f) bias_term = 0.0f;
     }
     
-    // ✅ IMPROVED: Apply variable Ki to integration
-    mc->integral += integral_change * variable_ki;
-    
-    // ✅ Apply integral limits (avoid unnecessary comparisons when possible)
-    if (mc->integral > 50.0f) {
-        mc->integral = 50.0f;
-    } else if (mc->integral < -50.0f) {
-        mc->integral = -50.0f;
-    }
-    
-    // ✅ IMPROVED: Detect overshoot with hysteresis to avoid oscillation
-    static float last_error = 0.0f;
-    static uint8_t same_sign_count = 0;
-    
-    if ((error > 0 && last_error < 0) || (error < 0 && last_error > 0)) {
-        // Zero crossing detected (error changed sign) - possible overshoot
-        if (fabs(error) > 2.0f) {  // Only reset if significant overshoot
-            mc->integral = 0.0f;
-            same_sign_count = 0;
-        }
-    } else {
-        // Error still has same sign
-        same_sign_count++;
-        
-        // If error stays same sign for a while, we're not oscillating
-        // Allow a small amount of integral to accumulate for steady-state
-        if (same_sign_count > 50 && fabs(mc->integral) < 0.1f && abs_error > 1.0f) {
-            // Small nudge to overcome steady-state error
-            mc->integral = (error > 0) ? 1.0f : -1.0f;
-        }
-    }
-    
-    last_error = error;
-    
-    // Calculate final output
+    // Calculate final output with bias term
     float i_term = variable_ki * mc->integral;
-    float output = p_term + i_term + d_term;
+    float output = p_term + i_term + d_term + bias_term;  // Add bias term
     
     // Apply output limits
     if (output > 100.0f) output = 100.0f;
@@ -160,6 +121,49 @@ void MotorController_Update(MotorController *mc, uint32_t dt_ms) {
     
     mc->previous_error = error;
     Motor_SetDutyCycle(mc, (int8_t)output);
+    
+    // ✅ FIXED: Steady-state error compensation
+    float integral_change = 0.0f;
+    
+    // ✅ MUCH MORE AGGRESSIVE: Faster persistent error detection and response
+    static uint8_t persistent_error_counter = 0;
+    
+    if (abs_error > 3.0f) {
+        persistent_error_counter++;
+        
+        // If error persists for a while, increase integral action SIGNIFICANTLY
+        if (persistent_error_counter > 30) {  // Reduced from 100 to 30 (300ms)
+            // MUCH stronger integral action for persistent errors
+            integral_change = error * dt_sec * 3.0f;  // 300% stronger (was 1.5f)
+        } else {
+            // Normal integration
+            integral_change = error * dt_sec;
+        }
+    } else {
+        persistent_error_counter = 0;
+        
+        // NEVER reduce integral when we have persistent error below target
+        if (abs_error <= 1.0f || fabs(output_without_integral) >= 95.0f) {
+            if (fabs(mc->integral) > 0.1f) {
+                // Even slower decay rate
+                float decay_rate = 0.05f * dt_sec;  // Reduced from 0.1f
+                integral_change = -decay_rate * mc->integral;
+            }
+        } else {
+            // Standard integration for small errors
+            integral_change = error * dt_sec;
+        }
+    }
+    
+    // Apply variable Ki to integration
+    mc->integral += integral_change * variable_ki;
+    
+    // ✅ MODIFIED: Much higher integral limits
+    if (mc->integral > 100.0f) {      // Increased from 80.0f
+        mc->integral = 100.0f;
+    } else if (mc->integral < -100.0f) {
+        mc->integral = -100.0f;
+    }
 }
 
 float MotorController_GetRPM(MotorController *mc) {

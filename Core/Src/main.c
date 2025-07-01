@@ -122,7 +122,7 @@ int main(void)
   MotorController_Setup(&motor1, &htim2, &htim12, 
                        TIM_CHANNEL_1,    // Timer12 CH1 - Forward
                        TIM_CHANNEL_2,    // Timer12 CH2 - Backward  
-					   2.5, 0.4, 0.05);  // Kp=2.5, Ki=0.4 (increased from 0.05), Kd=0.05
+                       2.5, 0.8, 0.05);  // Kp=2.5, Ki=0.8 (DOUBLED from 0.4), Kd=0.05
 
   
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
