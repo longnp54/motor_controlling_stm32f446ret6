@@ -3,5 +3,5 @@
 ../Core/Src/motor_controlling.c:41:6:MotorController_Disable	16	static
 ../Core/Src/motor_controlling.c:49:6:MotorController_SetTargetRPM	16	static
 ../Core/Src/motor_controlling.c:54:6:MotorController_Update	88	static
-../Core/Src/motor_controlling.c:173:7:MotorController_GetRPM	16	static
-../Core/Src/motor_controlling.c:178:6:Motor_SetDutyCycle	24	static
+../Core/Src/motor_controlling.c:169:7:MotorController_GetRPM	16	static
+../Core/Src/motor_controlling.c:174:6:Motor_SetDutyCycle	24	static
